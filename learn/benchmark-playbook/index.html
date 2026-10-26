@@ -1,0 +1,262 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Y7JwbK9xxofGZVM0JxdXKpD+Dq64aKJJnI7P8C14OTQ='; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'"><title>基准实验与优化决策 · 观澜 Velora</title><meta name="description" content="用可复现实验判断优化是否真的改善延迟、吞吐和成本"><link rel="canonical" href="https://majiayu000.github.io/velora-site/learn/benchmark-playbook/"><meta property="og:url" content="https://majiayu000.github.io/velora-site/learn/benchmark-playbook/"><meta property="og:title" content="基准实验与优化决策 · 观澜 Velora"><meta property="og:description" content="用可复现实验判断优化是否真的改善延迟、吞吐和成本"><meta property="og:type" content="article"><meta property="og:locale" content="zh_CN"><meta name="twitter:card" content="summary"><meta name="twitter:title" content="基准实验与优化决策 · 观澜 Velora"><meta name="twitter:description" content="用可复现实验判断优化是否真的改善延迟、吞吐和成本"><link rel="icon" href="/velora-site/favicon.svg" type="image/svg+xml"><script type="module" crossorigin src="/velora-site/assets/index-C56CfqEb.js"></script><link rel="stylesheet" crossorigin href="/velora-site/assets/index-DD77AjJB.css"><script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Article","headline":"基准实验与优化决策","description":"用可复现实验判断优化是否真的改善延迟、吞吐和成本","dateModified":"2026-10-05T23:02:33.448Z","inLanguage":"zh-CN","url":"https://majiayu000.github.io/velora-site/learn/benchmark-playbook/"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"LLM 推理优化学习站","item":"https://majiayu000.github.io/velora-site/learn/"},{"@type":"ListItem","position":2,"name":"基准实验与优化决策","item":"https://majiayu000.github.io/velora-site/learn/benchmark-playbook/"}]}]}</script></head><body><a class="skip-link" href="#main">跳到正文</a><header class="public-header"><a class="public-brand" href="/velora-site/"><span aria-hidden="true">澜</span><strong>观澜 Velora</strong></a><nav class="header-links" aria-label="主导航"><a href="/velora-site/learn/#articles">全部文章</a><a href="/velora-site/getting-started/">本地使用指南 <span aria-hidden="true">↗</span></a></nav></header><div class="reading-layout"><main id="main" class="public-article" tabindex="-1"><nav class="breadcrumbs" aria-label="面包屑"><a href="/velora-site/learn/">全部文章</a><span aria-hidden="true">/</span><span>基准实验与优化决策</span></nav><header class="article-heading"><p class="eyebrow">学习路径 03</p><h1>基准实验与优化决策</h1><p class="article-summary">用可复现实验判断优化是否真的改善延迟、吞吐和成本</p><p class="article-meta">更新于 <time datetime="2026-10-05T23:02:33.448Z">2026-10-05</time><span>·</span>5 分钟阅读</p></header><details class="mobile-directory"><summary>学习目录</summary><nav aria-label="学习目录"><a href="/velora-site/learn/start-here/">从这里开始</a><a href="/velora-site/learn/inference-mental-model/">推理性能心智模型</a><a href="/velora-site/learn/cpu-cluster-optimization/">CPU 集群推理优化</a><a href="/velora-site/learn/gpu-cluster-optimization/">GPU 集群推理优化</a><a href="/velora-site/learn/benchmark-playbook/">基准实验与优化决策</a><a href="/velora-site/learn/svg-diagram-design/">SVG 流程图设计与交互</a><a href="/velora-site/learn/dynamic-flow-design/">动态连接的交互流程图</a></nav></details><article class="markdown public-markdown">
+<blockquote>
+<p>Evidence: verified for metric definitions and framework benchmarking practice; all target values are unknown until the user supplies an SLO.</p>
+</blockquote>
+<h2 id="直接答案">直接答案</h2>
+<p>一次可信的推理优化实验必须固定模型、硬件、请求分布和质量要求，每轮只改变一个主要变量，并同时报告延迟、吞吐、错误、资源和成本。没有对照组或没有 P99 的结果，不能支持集群配置决策。</p>
+<h2 id="先写清楚服务目标">先写清楚服务目标</h2>
+<p>不同产品追求的目标不同：</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>首要指标</th>
+<th>可接受交换</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>交互聊天</td>
+<td>TTFT、TPOT、P99</td>
+<td>可以牺牲部分峰值吞吐</td>
+</tr>
+<tr>
+<td>批量摘要</td>
+<td>总吞吐、成本</td>
+<td>可以等待更大的批次</td>
+</tr>
+<tr>
+<td>代码补全</td>
+<td>极低 TPOT 和稳定尾延迟</td>
+<td>通常不适合长队列</td>
+</tr>
+<tr>
+<td>长文档问答</td>
+<td>长 Prompt TTFT、KV 容量</td>
+<td>可能需要缓存或阶段分离</td>
+</tr>
+</tbody></table>
+<p>在实验前写出硬门槛，例如：</p>
+<pre><code class="language-text">P99 TTFT &lt;= 2 s
+P99 TPOT &lt;= 80 ms
+错误率 &lt; 0.1%
+上下文不得截断
+满足以上条件时，最大化输出 tokens/s/GPU
+</code></pre>
+<p>这些数字只是格式示例，不是当前项目已经确定的 SLO。</p>
+<h2 id="固定工作负载">固定工作负载</h2>
+<p>至少记录：</p>
+<ul>
+<li>模型名称、版本、精度和量化方式。</li>
+<li>推理框架及版本。</li>
+<li>CPU/GPU 型号、数量、NUMA 或 GPU 互联拓扑。</li>
+<li>节点间网络类型。</li>
+<li>输入长度和输出长度分布，不只写平均值。</li>
+<li>并发模型：固定并发、固定请求率，还是突发流量。</li>
+<li>Prompt 是否包含可重复前缀。</li>
+<li>采样参数和随机种子。</li>
+<li>预热次数、测量时长和重复次数。</li>
+</ul>
+<p>如果这些字段变化，两个结果不能直接比较。</p>
+<h2 id="最小指标集">最小指标集</h2>
+<h3 id="用户体验">用户体验</h3>
+<ul>
+<li>TTFT：请求到第一个 Token。</li>
+<li>TPOT/ITL：首 Token 之后的生成间隔。</li>
+<li>E2E latency：整个请求完成时间。</li>
+<li>P50、P95、P99，而不只是平均值。</li>
+</ul>
+<h3 id="容量与效率">容量与效率</h3>
+<ul>
+<li>输入、输出和总 tokens/s。</li>
+<li>成功请求数与最大稳定并发。</li>
+<li>GPU 显存或 CPU 内存峰值。</li>
+<li>KV Cache 使用率、命中率、抢占或淘汰数。</li>
+<li>GPU 利用率、计算时间和通信时间。</li>
+<li>每百万输入/输出 Token 成本。</li>
+</ul>
+<h3 id="正确性">正确性</h3>
+<ul>
+<li>输出是否完整，是否发生上下文截断。</li>
+<li>量化前后任务质量是否越过允许阈值。</li>
+<li>请求失败、超时、取消是否被正确分类。</li>
+<li>不支持的内核是否发生 fallback。</li>
+</ul>
+<p>vLLM 的持续性能基准将 serving、throughput 和 latency 分开测量，并同时展示 TTFT、TPOT、吞吐和满足约束的最大并发。<a href="https://docs.vllm.ai/en/latest/benchmarking/dashboard/">vLLM Performance Dashboard</a></p>
+<h2 id="推荐实验矩阵">推荐实验矩阵</h2>
+<h3 id="cpu-路径">CPU 路径</h3>
+<table>
+<thead>
+<tr>
+<th>轮次</th>
+<th>唯一主要变化</th>
+<th>要回答的问题</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>C0</td>
+<td>未绑定基线</td>
+<td>当前瓶颈和波动多大？</td>
+</tr>
+<tr>
+<td>C1</td>
+<td>NUMA 与核心绑定</td>
+<td>远端内存访问是否下降？</td>
+</tr>
+<tr>
+<td>C2</td>
+<td>调整线程预算</td>
+<td>是否消除超卖和忙等？</td>
+</tr>
+<tr>
+<td>C3</td>
+<td>量化</td>
+<td>内存、吞吐和质量怎样变化？</td>
+</tr>
+<tr>
+<td>C4</td>
+<td>连续批处理</td>
+<td>吞吐收益是否破坏 TTFT/P99？</td>
+</tr>
+<tr>
+<td>C5</td>
+<td>增加请求级副本</td>
+<td>扩容是否接近线性？</td>
+</tr>
+</tbody></table>
+<h3 id="gpu-路径">GPU 路径</h3>
+<table>
+<thead>
+<tr>
+<th>轮次</th>
+<th>唯一主要变化</th>
+<th>要回答的问题</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>G0</td>
+<td>单卡基线</td>
+<td>单请求与饱和点在哪里？</td>
+</tr>
+<tr>
+<td>G1</td>
+<td>连续批处理</td>
+<td>设备空洞是否减少？</td>
+</tr>
+<tr>
+<td>G2</td>
+<td>Prefix Cache</td>
+<td>真实前缀流量命中多少？</td>
+</tr>
+<tr>
+<td>G3</td>
+<td>量化</td>
+<td>容量和内核收益是否兑现？</td>
+</tr>
+<tr>
+<td>G4</td>
+<td>DP 副本</td>
+<td>总吞吐和尾延迟如何扩展？</td>
+</tr>
+<tr>
+<td>G5</td>
+<td>TP/PP/EP</td>
+<td>通信成本是否低于计算收益？</td>
+</tr>
+<tr>
+<td>G6</td>
+<td>阶段分离</td>
+<td>TTFT/TPOT 收益是否覆盖 KV 传输？</td>
+</tr>
+</tbody></table>
+<p>不要在 G1 同时打开量化、Prefix Cache 和 TP。即使结果变快，也无法知道哪项有效、哪项有害。</p>
+<h2 id="判定结果是否有效">判定结果是否有效</h2>
+<pre><code class="language-text">配置可启动
+  -&gt; 预热完成
+  -&gt; 固定负载运行足够时长
+  -&gt; 无关键指标缺失
+  -&gt; 错误率和正确性通过
+  -&gt; 多次重复结果稳定
+  -&gt; 才比较性能和成本
+</code></pre>
+<p>以下情况应该把整轮标为无效：</p>
+<ul>
+<li>指标采集器中途退出。</li>
+<li>一部分请求被静默截断或丢弃。</li>
+<li>量化内核不支持，运行时回退但未单独标记。</li>
+<li>某个分布式 rank 反复重启。</li>
+<li>两轮使用不同模型版本或不同长度分布。</li>
+<li>只保留最好的一次结果。</li>
+</ul>
+<h2 id="从现象反推下一步">从现象反推下一步</h2>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>优先调查</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>低并发 TTFT 已经很高</td>
+<td>Prefill、模型加载/冷启动、Tokenization</td>
+</tr>
+<tr>
+<td>并发上升后 TTFT 急剧恶化</td>
+<td>排队、批次预算、准入控制</td>
+</tr>
+<tr>
+<td>TPOT 高但 GPU 利用率低</td>
+<td>调度间隙、通信、CPU 前端、同步</td>
+</tr>
+<tr>
+<td>GPU OOM 但算力未饱和</td>
+<td>KV Cache、上下文、碎片、容量设置</td>
+</tr>
+<tr>
+<td>CPU 利用率高但吞吐低</td>
+<td>内存带宽、NUMA、线程超卖、fallback</td>
+</tr>
+<tr>
+<td>DP 扩容不线性</td>
+<td>路由、前端瓶颈、共享存储或网络</td>
+</tr>
+<tr>
+<td>TP 增卡反而变慢</td>
+<td>All-Reduce、拓扑、批次太小</td>
+</tr>
+<tr>
+<td>Prefix Cache 命中很低</td>
+<td>路由错位、前缀不稳定、淘汰策略</td>
+</tr>
+</tbody></table>
+<h2 id="一份可复用的实验记录">一份可复用的实验记录</h2>
+<pre><code class="language-text">假设：
+变更：
+保持不变的条件：
+模型与运行时版本：
+硬件与拓扑：
+请求长度分布：
+目标 SLO：
+
+P50/P99 TTFT：
+P50/P99 TPOT：
+输出 tokens/s：
+峰值内存/显存：
+KV Cache 命中/抢占：
+错误率：
+质量回归：
+成本：
+
+结论：接受 / 拒绝 / 证据不足
+下一轮只改变：
+</code></pre>
+<h2 id="完成标准">完成标准</h2>
+<p>当你能根据同一组负载解释以下问题，这轮学习才算闭环：</p>
+<ol>
+<li>当前系统的主要瓶颈是什么？</li>
+<li>优化改变了哪段执行链？</li>
+<li>哪个指标改善，哪个指标退化？</li>
+<li>收益来自计算、内存、通信还是排队？</li>
+<li>在什么负载或硬件边界下结论会失效？</li>
+</ol>
+<p>下一步最有价值的是选一个真实推理仓库和一套实际硬件，把这份模板变成第一份可复现报告。</p>
+</article><section class="related-reading"><h2>继续理解</h2><a href="/velora-site/learn/cpu-cluster-optimization/"><strong>CPU 集群推理优化</strong><span>NUMA、线程、量化、批处理和请求级扩容如何协同</span></a><a href="/velora-site/learn/gpu-cluster-optimization/"><strong>GPU 集群推理优化</strong><span>连续批处理、Paged KV Cache、DP/TP/PP/EP 与阶段分离</span></a><a href="/velora-site/learn/inference-mental-model/"><strong>推理性能心智模型</strong><span>从 Prefill、Decode、KV Cache 和四类性能指标理解瓶颈</span></a></section><nav class="article-pagination" aria-label="上下篇"><a href="/velora-site/learn/gpu-cluster-optimization/"><small>上一篇</small><strong>GPU 集群推理优化</strong></a><a href="/velora-site/learn/svg-diagram-design/"><small>下一篇</small><strong>SVG 流程图设计与交互</strong></a></nav></main><aside class="reading-sidebar"><nav class="table-of-contents" aria-label="本页目录"><p>本页内容</p><a class="toc-h2" href="#%E7%9B%B4%E6%8E%A5%E7%AD%94%E6%A1%88">直接答案</a><a class="toc-h2" href="#%E5%85%88%E5%86%99%E6%B8%85%E6%A5%9A%E6%9C%8D%E5%8A%A1%E7%9B%AE%E6%A0%87">先写清楚服务目标</a><a class="toc-h2" href="#%E5%9B%BA%E5%AE%9A%E5%B7%A5%E4%BD%9C%E8%B4%9F%E8%BD%BD">固定工作负载</a><a class="toc-h2" href="#%E6%9C%80%E5%B0%8F%E6%8C%87%E6%A0%87%E9%9B%86">最小指标集</a><a class="toc-h3" href="#%E7%94%A8%E6%88%B7%E4%BD%93%E9%AA%8C">用户体验</a><a class="toc-h3" href="#%E5%AE%B9%E9%87%8F%E4%B8%8E%E6%95%88%E7%8E%87">容量与效率</a><a class="toc-h3" href="#%E6%AD%A3%E7%A1%AE%E6%80%A7">正确性</a><a class="toc-h2" href="#%E6%8E%A8%E8%8D%90%E5%AE%9E%E9%AA%8C%E7%9F%A9%E9%98%B5">推荐实验矩阵</a><a class="toc-h3" href="#cpu-%E8%B7%AF%E5%BE%84">CPU 路径</a><a class="toc-h3" href="#gpu-%E8%B7%AF%E5%BE%84">GPU 路径</a><a class="toc-h2" href="#%E5%88%A4%E5%AE%9A%E7%BB%93%E6%9E%9C%E6%98%AF%E5%90%A6%E6%9C%89%E6%95%88">判定结果是否有效</a><a class="toc-h2" href="#%E4%BB%8E%E7%8E%B0%E8%B1%A1%E5%8F%8D%E6%8E%A8%E4%B8%8B%E4%B8%80%E6%AD%A5">从现象反推下一步</a><a class="toc-h2" href="#%E4%B8%80%E4%BB%BD%E5%8F%AF%E5%A4%8D%E7%94%A8%E7%9A%84%E5%AE%9E%E9%AA%8C%E8%AE%B0%E5%BD%95">一份可复用的实验记录</a><a class="toc-h2" href="#%E5%AE%8C%E6%88%90%E6%A0%87%E5%87%86">完成标准</a></nav><nav class="reading-directory" aria-label="学习目录"><p>学习路径</p><a href="/velora-site/learn/start-here/">从这里开始</a><a href="/velora-site/learn/inference-mental-model/">推理性能心智模型</a><a href="/velora-site/learn/cpu-cluster-optimization/">CPU 集群推理优化</a><a href="/velora-site/learn/gpu-cluster-optimization/">GPU 集群推理优化</a><a href="/velora-site/learn/benchmark-playbook/" aria-current="page">基准实验与优化决策</a><a href="/velora-site/learn/svg-diagram-design/">SVG 流程图设计与交互</a><a href="/velora-site/learn/dynamic-flow-design/">动态连接的交互流程图</a></nav></aside></div><footer class="public-footer"><a href="/velora-site/">观澜 Velora</a><span>使用观澜 Velora 整理与发布</span><a href="/velora-site/getting-started/">继续构建自己的学习文档 ↗</a></footer></body></html>

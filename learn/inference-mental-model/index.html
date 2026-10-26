@@ -1,0 +1,173 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-XCsZtSB9MYl/YJ8vJMV+61YTCTNgQu0T2tcBkf/crt4='; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'"><title>推理性能心智模型 · 观澜 Velora</title><meta name="description" content="从 Prefill、Decode、KV Cache 和四类性能指标理解瓶颈"><link rel="canonical" href="https://majiayu000.github.io/velora-site/learn/inference-mental-model/"><meta property="og:url" content="https://majiayu000.github.io/velora-site/learn/inference-mental-model/"><meta property="og:title" content="推理性能心智模型 · 观澜 Velora"><meta property="og:description" content="从 Prefill、Decode、KV Cache 和四类性能指标理解瓶颈"><meta property="og:type" content="article"><meta property="og:locale" content="zh_CN"><meta name="twitter:card" content="summary"><meta name="twitter:title" content="推理性能心智模型 · 观澜 Velora"><meta name="twitter:description" content="从 Prefill、Decode、KV Cache 和四类性能指标理解瓶颈"><link rel="icon" href="/velora-site/favicon.svg" type="image/svg+xml"><script type="module" crossorigin src="/velora-site/assets/index-C56CfqEb.js"></script><link rel="stylesheet" crossorigin href="/velora-site/assets/index-DD77AjJB.css"><script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Article","headline":"推理性能心智模型","description":"从 Prefill、Decode、KV Cache 和四类性能指标理解瓶颈","dateModified":"2026-10-05T23:02:33.449Z","inLanguage":"zh-CN","url":"https://majiayu000.github.io/velora-site/learn/inference-mental-model/"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"LLM 推理优化学习站","item":"https://majiayu000.github.io/velora-site/learn/"},{"@type":"ListItem","position":2,"name":"推理性能心智模型","item":"https://majiayu000.github.io/velora-site/learn/inference-mental-model/"}]}]}</script></head><body><a class="skip-link" href="#main">跳到正文</a><header class="public-header"><a class="public-brand" href="/velora-site/"><span aria-hidden="true">澜</span><strong>观澜 Velora</strong></a><nav class="header-links" aria-label="主导航"><a href="/velora-site/learn/#articles">全部文章</a><a href="/velora-site/getting-started/">本地使用指南 <span aria-hidden="true">↗</span></a></nav></header><div class="reading-layout"><main id="main" class="public-article" tabindex="-1"><nav class="breadcrumbs" aria-label="面包屑"><a href="/velora-site/learn/">全部文章</a><span aria-hidden="true">/</span><span>推理性能心智模型</span></nav><header class="article-heading"><p class="eyebrow">学习路径 01</p><h1>推理性能心智模型</h1><p class="article-summary">从 Prefill、Decode、KV Cache 和四类性能指标理解瓶颈</p><p class="article-meta">更新于 <time datetime="2026-10-05T23:02:33.449Z">2026-10-05</time><span>·</span>5 分钟阅读</p></header><details class="mobile-directory"><summary>学习目录</summary><nav aria-label="学习目录"><a href="/velora-site/learn/start-here/">从这里开始</a><a href="/velora-site/learn/inference-mental-model/">推理性能心智模型</a><a href="/velora-site/learn/cpu-cluster-optimization/">CPU 集群推理优化</a><a href="/velora-site/learn/gpu-cluster-optimization/">GPU 集群推理优化</a><a href="/velora-site/learn/benchmark-playbook/">基准实验与优化决策</a><a href="/velora-site/learn/svg-diagram-design/">SVG 流程图设计与交互</a><a href="/velora-site/learn/dynamic-flow-design/">动态连接的交互流程图</a></nav></details><article class="markdown public-markdown">
+<blockquote>
+<p>Evidence: verified from current official framework documentation; workload-specific conclusions remain unknown until benchmarked.</p>
+</blockquote>
+<h2 id="直接答案">直接答案</h2>
+<p>LLM 推理优化的核心，是让计算、显存或内存、通信和排队更好地配合。第一步不是选择 CPU 还是 GPU，而是先判断请求卡在 Prefill、Decode、KV Cache、通信还是调度。</p>
+<h2 id="必备概念">必备概念</h2>
+<p>一次典型文本生成包含两个阶段：</p>
+<table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>做什么</th>
+<th>常见瓶颈</th>
+<th>最相关指标</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Prefill</td>
+<td>并行处理全部输入 Token，并生成初始 KV Cache</td>
+<td>大矩阵计算、长 Prompt、排队</td>
+<td>TTFT</td>
+</tr>
+<tr>
+<td>Decode</td>
+<td>读取已有 KV Cache，每一步生成一个或少量 Token</td>
+<td>权重与 KV 读取、同步、调度间隙</td>
+<td>TPOT、ITL</td>
+</tr>
+</tbody></table>
+<p>TensorRT-LLM 的阶段分离文档也把 context/prefill 和 generation/decode 视为计算特性不同的两个阶段，并指出两者共享 GPU 时会互相干扰。<a href="https://nvidia.github.io/TensorRT-LLM/features/disagg-serving.html">TensorRT-LLM Disaggregated Serving</a></p>
+<h3 id="kv-cache-是什么">KV Cache 是什么</h3>
+<p>Transformer 在生成后续 Token 时需要过去 Token 的 Key/Value 状态。KV Cache 保存这些中间结果，避免每次从头计算整段历史。</p>
+<p>它带来一个关键交换：计算量下降，但每个并发请求都会占用更多内存或显存。上下文越长、并发越高，KV Cache 越可能先于算力成为容量上限。TensorRT-LLM 使用分块池管理 KV Cache，并支持跨请求复用、卸载和淘汰策略。<a href="https://nvidia.github.io/TensorRT-LLM/features/kvcache.html">TensorRT-LLM KV Cache System</a></p>
+<h2 id="四类不能混为一谈的指标">四类不能混为一谈的指标</h2>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>用户感受</th>
+<th>容易被什么影响</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>TTFT</td>
+<td>等多久看到第一个字</td>
+<td>排队、Prompt 长度、Prefill、前缀缓存</td>
+</tr>
+<tr>
+<td>TPOT / ITL</td>
+<td>后续文字出来得是否流畅</td>
+<td>Decode、批次大小、通信、抢占</td>
+</tr>
+<tr>
+<td>Throughput</td>
+<td>集群每秒处理多少 Token</td>
+<td>批处理、并发、量化、设备数量</td>
+</tr>
+<tr>
+<td>P99</td>
+<td>高峰期最慢的请求有多慢</td>
+<td>排队、长短请求混跑、缓存不足、故障</td>
+</tr>
+</tbody></table>
+<p>只汇报平均吞吐会掩盖交互体验。vLLM 的持续基准也同时观察吞吐、TTFT、TPOT 和满足延迟约束时的最大并发。<a href="https://docs.vllm.ai/en/latest/benchmarking/dashboard/">vLLM Performance Dashboard</a></p>
+<h2 id="从请求到输出的状态所有权">从请求到输出的状态所有权</h2>
+<pre><code class="language-text">API 层
+  拥有：请求身份、截止时间、取消信号
+  ↓
+路由与准入层
+  拥有：目标副本、排队或拒绝决定
+  ↓
+调度器
+  拥有：本轮运行哪些序列、分配多少 Token 预算
+  ↓
+KV Cache 管理器
+  拥有：缓存块、引用、淘汰和容量
+  ↓
+模型执行器
+  拥有：权重、算子、设备流和分布式通信
+  ↓
+流式响应与观测
+  拥有：Token 输出、TTFT/TPOT、错误分类
+</code></pre>
+<p>这条所有权边界很重要。例如 KV Cache 不足时，调度器必须明确选择排队、抢占或拒绝，不能偷偷丢弃上下文后继续生成。</p>
+<h2 id="优化手段到底改了哪里">优化手段到底改了哪里</h2>
+<table>
+<thead>
+<tr>
+<th>优化</th>
+<th>主要作用位置</th>
+<th>首要目标</th>
+<th>典型代价</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>连续批处理</td>
+<td>调度器</td>
+<td>提高设备利用率和吞吐</td>
+<td>排队或批次过大可能增加延迟</td>
+</tr>
+<tr>
+<td>Paged KV Cache</td>
+<td>缓存管理</td>
+<td>减少碎片，提高并发容量</td>
+<td>元数据和调度更复杂</td>
+</tr>
+<tr>
+<td>Prefix Cache</td>
+<td>Prefill/KV</td>
+<td>降低重复前缀的 TTFT</td>
+<td>需要缓存感知路由和淘汰</td>
+</tr>
+<tr>
+<td>Chunked Prefill</td>
+<td>调度器/Prefill</td>
+<td>避免长 Prompt 阻塞 Decode</td>
+<td>参数需要按流量调节</td>
+</tr>
+<tr>
+<td>量化</td>
+<td>权重、激活或 KV</td>
+<td>降低容量和带宽压力</td>
+<td>精度、内核、硬件兼容风险</td>
+</tr>
+<tr>
+<td>数据并行</td>
+<td>路由/副本</td>
+<td>提高集群总吞吐</td>
+<td>权重和缓存重复占用</td>
+</tr>
+<tr>
+<td>张量并行</td>
+<td>模型执行</td>
+<td>让模型跨设备，缩短单步计算</td>
+<td>每层需要高频通信</td>
+</tr>
+<tr>
+<td>投机解码</td>
+<td>Decode</td>
+<td>减少目标模型串行步数</td>
+<td>draft 成本和接受率不确定</td>
+</tr>
+</tbody></table>
+<h2 id="一个实用判断顺序">一个实用判断顺序</h2>
+<ol>
+<li>模型和目标上下文能否放进单个设备或单个 NUMA 实例？</li>
+<li>单请求延迟在低并发时是否达标？</li>
+<li>增加并发后，是算力、缓存容量还是排队先饱和？</li>
+<li>优化后 TTFT、TPOT、P99 和错误率分别怎样变化？</li>
+<li>每百万 Token 成本是否真的下降？</li>
+</ol>
+<p>如果第一步都没有测量，就直接上多节点，通常只是在把未知瓶颈复制到更多机器。</p>
+<h2 id="失败和边界行为">失败和边界行为</h2>
+<ul>
+<li>输入超过支持的上下文长度，应返回明确错误。</li>
+<li>KV Cache 或设备内存不足，应排队、抢占或拒绝，并暴露原因。</li>
+<li>某种量化或内核不兼容，应启动失败或明确拒绝配置，不能静默退回一个性能完全不同的路径。</li>
+<li>分布式 rank 丢失时，不能把残缺结果作为正常回答返回。</li>
+<li>指标缺失时，基准结果应标为无效，不能用平均值代替 P99。</li>
+</ul>
+<h2 id="自己动手观察">自己动手观察</h2>
+<p>保持模型和并发不变，只把输入长度从 128 Token 增加到 4096 Token：</p>
+<ul>
+<li>TTFT 应发生什么变化？</li>
+<li>TPOT 是否以同样幅度变化？</li>
+<li>峰值 KV Cache 为什么会上升？</li>
+</ul>
+<p>然后保持输入长度不变，提高并发。观察最先恶化的是 TTFT、TPOT、吞吐还是错误率。</p>
+<h2 id="小测验">小测验</h2>
+<p>一个优化让吞吐提高 30%，但 P99 TTFT 从 1 秒变成 8 秒。它是否更好？</p>
+<p>答案取决于服务 SLO。离线批处理可能接受，交互式聊天通常不能接受。这也是后续所有章节的判断基线。</p>
+</article><section class="related-reading"><h2>继续理解</h2><a href="/velora-site/learn/start-here/"><strong>从这里开始</strong><span>学习路线、证据边界，以及 CPU/GPU 优化之间的关系</span></a><a href="/velora-site/learn/cpu-cluster-optimization/"><strong>CPU 集群推理优化</strong><span>NUMA、线程、量化、批处理和请求级扩容如何协同</span></a><a href="/velora-site/learn/gpu-cluster-optimization/"><strong>GPU 集群推理优化</strong><span>连续批处理、Paged KV Cache、DP/TP/PP/EP 与阶段分离</span></a></section><nav class="article-pagination" aria-label="上下篇"><a href="/velora-site/learn/start-here/"><small>上一篇</small><strong>从这里开始</strong></a><a href="/velora-site/learn/cpu-cluster-optimization/"><small>下一篇</small><strong>CPU 集群推理优化</strong></a></nav></main><aside class="reading-sidebar"><nav class="table-of-contents" aria-label="本页目录"><p>本页内容</p><a class="toc-h2" href="#%E7%9B%B4%E6%8E%A5%E7%AD%94%E6%A1%88">直接答案</a><a class="toc-h2" href="#%E5%BF%85%E5%A4%87%E6%A6%82%E5%BF%B5">必备概念</a><a class="toc-h3" href="#kv-cache-%E6%98%AF%E4%BB%80%E4%B9%88">KV Cache 是什么</a><a class="toc-h2" href="#%E5%9B%9B%E7%B1%BB%E4%B8%8D%E8%83%BD%E6%B7%B7%E4%B8%BA%E4%B8%80%E8%B0%88%E7%9A%84%E6%8C%87%E6%A0%87">四类不能混为一谈的指标</a><a class="toc-h2" href="#%E4%BB%8E%E8%AF%B7%E6%B1%82%E5%88%B0%E8%BE%93%E5%87%BA%E7%9A%84%E7%8A%B6%E6%80%81%E6%89%80%E6%9C%89%E6%9D%83">从请求到输出的状态所有权</a><a class="toc-h2" href="#%E4%BC%98%E5%8C%96%E6%89%8B%E6%AE%B5%E5%88%B0%E5%BA%95%E6%94%B9%E4%BA%86%E5%93%AA%E9%87%8C">优化手段到底改了哪里</a><a class="toc-h2" href="#%E4%B8%80%E4%B8%AA%E5%AE%9E%E7%94%A8%E5%88%A4%E6%96%AD%E9%A1%BA%E5%BA%8F">一个实用判断顺序</a><a class="toc-h2" href="#%E5%A4%B1%E8%B4%A5%E5%92%8C%E8%BE%B9%E7%95%8C%E8%A1%8C%E4%B8%BA">失败和边界行为</a><a class="toc-h2" href="#%E8%87%AA%E5%B7%B1%E5%8A%A8%E6%89%8B%E8%A7%82%E5%AF%9F">自己动手观察</a><a class="toc-h2" href="#%E5%B0%8F%E6%B5%8B%E9%AA%8C">小测验</a></nav><nav class="reading-directory" aria-label="学习目录"><p>学习路径</p><a href="/velora-site/learn/start-here/">从这里开始</a><a href="/velora-site/learn/inference-mental-model/" aria-current="page">推理性能心智模型</a><a href="/velora-site/learn/cpu-cluster-optimization/">CPU 集群推理优化</a><a href="/velora-site/learn/gpu-cluster-optimization/">GPU 集群推理优化</a><a href="/velora-site/learn/benchmark-playbook/">基准实验与优化决策</a><a href="/velora-site/learn/svg-diagram-design/">SVG 流程图设计与交互</a><a href="/velora-site/learn/dynamic-flow-design/">动态连接的交互流程图</a></nav></aside></div><footer class="public-footer"><a href="/velora-site/">观澜 Velora</a><span>使用观澜 Velora 整理与发布</span><a href="/velora-site/getting-started/">继续构建自己的学习文档 ↗</a></footer></body></html>

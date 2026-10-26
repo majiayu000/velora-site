@@ -1,0 +1,130 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-iDVpoo5OgVDLkFcoSzM2GUVLEKNyJTJN8RalWEQGjsE='; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'"><title>SVG 流程图设计与交互 · 观澜 Velora</title><meta name="description" content="用分层节点、绕行连线和点击说明，把流程放进可审核的 Markdown 教程"><link rel="canonical" href="https://majiayu000.github.io/velora-site/learn/svg-diagram-design/"><meta property="og:url" content="https://majiayu000.github.io/velora-site/learn/svg-diagram-design/"><meta property="og:title" content="SVG 流程图设计与交互 · 观澜 Velora"><meta property="og:description" content="用分层节点、绕行连线和点击说明，把流程放进可审核的 Markdown 教程"><meta property="og:type" content="article"><meta property="og:locale" content="zh_CN"><meta name="twitter:card" content="summary"><meta name="twitter:title" content="SVG 流程图设计与交互 · 观澜 Velora"><meta name="twitter:description" content="用分层节点、绕行连线和点击说明，把流程放进可审核的 Markdown 教程"><link rel="icon" href="/velora-site/favicon.svg" type="image/svg+xml"><script type="module" crossorigin src="/velora-site/assets/index-C56CfqEb.js"></script><link rel="stylesheet" crossorigin href="/velora-site/assets/index-DD77AjJB.css"><script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Article","headline":"SVG 流程图设计与交互","description":"用分层节点、绕行连线和点击说明，把流程放进可审核的 Markdown 教程","dateModified":"2026-10-05T23:02:33.449Z","inLanguage":"zh-CN","url":"https://majiayu000.github.io/velora-site/learn/svg-diagram-design/"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"LLM 推理优化学习站","item":"https://majiayu000.github.io/velora-site/learn/"},{"@type":"ListItem","position":2,"name":"SVG 流程图设计与交互","item":"https://majiayu000.github.io/velora-site/learn/svg-diagram-design/"}]}]}</script></head><body><a class="skip-link" href="#main">跳到正文</a><header class="public-header"><a class="public-brand" href="/velora-site/"><span aria-hidden="true">澜</span><strong>观澜 Velora</strong></a><nav class="header-links" aria-label="主导航"><a href="/velora-site/learn/#articles">全部文章</a><a href="/velora-site/getting-started/">本地使用指南 <span aria-hidden="true">↗</span></a></nav></header><div class="reading-layout"><main id="main" class="public-article" tabindex="-1"><nav class="breadcrumbs" aria-label="面包屑"><a href="/velora-site/learn/">全部文章</a><span aria-hidden="true">/</span><span>SVG 流程图设计与交互</span></nav><header class="article-heading"><p class="eyebrow">学习路径 DESIGN</p><h1>SVG 流程图设计与交互</h1><p class="article-summary">用分层节点、绕行连线和点击说明，把流程放进可审核的 Markdown 教程</p><p class="article-meta">更新于 <time datetime="2026-10-05T23:02:33.449Z">2026-10-05</time><span>·</span>6 分钟阅读</p></header><details class="mobile-directory"><summary>学习目录</summary><nav aria-label="学习目录"><a href="/velora-site/learn/start-here/">从这里开始</a><a href="/velora-site/learn/inference-mental-model/">推理性能心智模型</a><a href="/velora-site/learn/cpu-cluster-optimization/">CPU 集群推理优化</a><a href="/velora-site/learn/gpu-cluster-optimization/">GPU 集群推理优化</a><a href="/velora-site/learn/benchmark-playbook/">基准实验与优化决策</a><a href="/velora-site/learn/svg-diagram-design/">SVG 流程图设计与交互</a><a href="/velora-site/learn/dynamic-flow-design/">动态连接的交互流程图</a></nav></details><article class="markdown public-markdown"><h2 id="把流程讲清楚-svg-图与节点说明">把流程讲清楚：SVG 图与节点说明</h2>
+<p>先按「谁负责什么」分层，再画关系。SVG 不只是图片格式：矩形是节点，<code>path</code> 是连线，<code>marker</code> 是箭头；它们一起构成可缩放的流程图。本页的图是 Learn Workbench 教学示例，不表示任何外部产品的后端架构。</p>
+<p>需要随卡片排版重画连接时，查看 <a href="#/doc/dynamic-flow-design">动态连接的交互流程图</a>。</p>
+<h2 id="一张图讲一个问题">一张图讲一个问题</h2>
+<p>这张图回答：Agent 的建议怎样成为读者看到的教程？上排是提出建议，下排是审核后的文档流。点击节点看输入、输出和边界，相关连线会突出显示。适应宽度看全局，展开阅读看细节。</p>
+<figure class="learn-diagram"><figcaption>从问题到可审核的教程</figcaption><div class="diagram-tools" role="group" aria-label="图表阅读工具"><button type="button" data-diagram-action="fit">适应宽度</button><button type="button" data-diagram-action="out" aria-label="缩小图表">−</button><output aria-live="polite">100%</output><button type="button" data-diagram-action="in" aria-label="放大图表">＋</button><button type="button" data-diagram-action="expand" aria-expanded="false">展开阅读</button></div><div class="diagram-viewport" tabindex="0" aria-label="从问题到可审核的教程，放大后可滚动查看"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1060 640" font-family="Avenir Next, sans-serif" role="group" aria-label="从问题到可审核的教程">
+  <title>从问题到可审核的教程</title>
+  <desc>上排：提问与 Agent 建议。下排：用户审核、Markdown 保存、页面阅读。橙色连线表示等待用户决定；下方回路表示下一轮问题。</desc>
+  <defs>
+    <marker id="article-svg-diagram-design-diagram-0-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#718a80"></path></marker>
+    <marker id="article-svg-diagram-design-diagram-0-review" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#b97845"></path></marker>
+  </defs>
+  <rect x="0" y="0" width="1060" height="640" fill="#fffdf8"></rect>
+  <text x="42" y="48" font-size="13" fill="#9a7552" letter-spacing="2">01 / 提出建议</text>
+  <text x="42" y="78" font-size="24" fill="#203e52">把解释、图和证据放在同一篇教程里</text>
+  <rect x="26" y="108" width="1008" height="166" rx="12" fill="#f2f5f0"></rect>
+  <text x="42" y="326" font-size="13" fill="#9a7552" letter-spacing="2">02 / 审核与阅读</text>
+  <rect x="26" y="346" width="1008" height="166" rx="12" fill="#f5f1e9"></rect>
+  
+  <g fill="none" stroke="#718a80" stroke-width="2" marker-end="url(#article-svg-diagram-design-diagram-0-arrow)">
+    <path data-from="question" data-to="agent" d="M312 188H390"></path>
+    <path data-from="agent" data-to="proposal" d="M650 188H728"></path>
+    <path data-from="review" data-to="markdown" d="M312 426H390"></path>
+    <path data-from="markdown" data-to="reader" d="M650 426H728"></path>
+    <path data-from="reader" data-to="question" d="M988 446H1016V568H18V188H52" stroke-dasharray="6 5"></path>
+  </g>
+  <path data-from="proposal" data-to="review" d="M858 244V304H182V370" fill="none" stroke="#b97845" stroke-width="2" marker-end="url(#article-svg-diagram-design-diagram-0-review)"></path>
+  <text x="602" y="296" font-size="13" fill="#9a6338">建议尚未写入文件</text>
+  <text x="444" y="593" font-size="13" fill="#62796d">阅读 → 新问题 → 下一轮改进</text>
+  <g data-node="question">
+    <title>1. 读者提出问题</title><desc>输入：真实问题和选中的正文。输出：带文档上下文的提问。边界：问题本身不会改写教程文件。</desc>
+    <rect x="52" y="132" width="260" height="112" rx="9" fill="#edf3f9" stroke="#b7cbdc"></rect>
+    <text x="74" y="168" font-size="20" fill="#203e52">读者提出问题</text>
+    <text x="74" y="197" font-size="14" fill="#586e80">原文 · 问题 · 上下文</text>
+    <text x="74" y="223" font-size="12" fill="#7a8b97">明确这一张图要解释什么</text>
+  </g>
+  <g data-node="agent">
+    <title>2. Agent 只读分析</title><desc>输入：问题与可读取的源码。输出：解释和证据。Codex Runtime 使用只读 sandbox；提交文档修改的是后续写服务。</desc>
+    <rect x="390" y="132" width="260" height="112" rx="9" fill="#edf3f9" stroke="#b7cbdc"></rect>
+    <text x="412" y="168" font-size="20" fill="#203e52">Agent 只读分析</text>
+    <text x="412" y="197" font-size="14" fill="#586e80">代码依据 · 已知与未知</text>
+    <text x="412" y="223" font-size="12" fill="#7a8b97">解释和图都需要对应证据</text>
+  </g>
+  <g data-node="proposal">
+    <title>3. 生成 Markdown 提案</title><desc>输出：完整 Markdown 建议，SVG 图块也属于正文。边界：提案保持待审核状态，不能把建议当作已保存内容。</desc>
+    <rect x="728" y="132" width="260" height="112" rx="9" fill="#f8eddf" stroke="#d8b98f"></rect>
+    <text x="750" y="168" font-size="20" fill="#203e52">生成 Markdown 提案</text>
+    <text x="750" y="197" font-size="14" fill="#806b52">文字解释 + SVG 图 + 证据</text>
+    <text x="750" y="223" font-size="12" fill="#8d806e">先预览，再决定是否写入</text>
+  </g>
+  <g data-node="review">
+    <title>4. 用户审核修改</title><desc>用户检查逐行 diff 和预览后接受或拒绝。草稿冲突需要先处理；未接受时不会进入本图的保存流程。</desc>
+    <rect x="52" y="370" width="260" height="112" rx="9" fill="#f8eddf" stroke="#d8b98f"></rect>
+    <text x="74" y="406" font-size="20" fill="#203e52">用户审核修改</text>
+    <text x="74" y="435" font-size="14" fill="#806b52">看 diff · 看图 · 检查结论</text>
+    <text x="74" y="461" font-size="12" fill="#8d806e">不接受就不进入保存流程</text>
+  </g>
+  <g data-node="markdown">
+    <title>5. 保存同一份 Markdown</title><desc>写服务按内容哈希检查冲突，再保存 Markdown。图的节点、路径和说明都在 SVG fence 中；不产生另一份图表状态数据库。</desc>
+    <rect x="390" y="370" width="260" height="112" rx="9" fill="#eaf3ec" stroke="#b4cdbc"></rect>
+    <text x="412" y="406" font-size="20" fill="#203e52">保存 Markdown</text>
+    <text x="412" y="435" font-size="14" fill="#586e60">一份正文 · 图随文档版本变化</text>
+    <text x="412" y="461" font-size="12" fill="#748778">内容哈希检查，冲突不覆盖</text>
+  </g>
+  <g data-node="reader">
+    <title>6. 安全渲染与阅读</title><desc>同一渲染器用于阅读、Agent 回答、编辑预览和只读构建。SVG 保留几何、箭头和节点说明，清除脚本、内嵌网页与外部资源。</desc>
+    <rect x="728" y="370" width="260" height="112" rx="9" fill="#eaf3ec" stroke="#b4cdbc"></rect>
+    <text x="750" y="406" font-size="20" fill="#203e52">页面显示与阅读</text>
+    <text x="750" y="435" font-size="14" fill="#586e60">缩放 · 节点说明 · 关联连线</text>
+    <text x="750" y="461" font-size="12" fill="#748778">阅读页与编辑预览表现一致</text>
+  </g>
+</svg></div><p class="diagram-description" aria-live="polite">上排：提问与 Agent 建议。下排：用户审核、Markdown 保存、页面阅读。橙色连线表示等待用户决定；下方回路表示下一轮问题。</p></figure><p>代码依据：<code>learn/src/MarkdownView.tsx</code>、<code>learn/src/markdown-renderer.ts</code>、<code>learn/src/diagrams.ts</code>、<code>learn/src/ArtifactPanel.tsx</code>、<code>src/adapters/runtime-codex/codex-runtime.ts</code>。本图简化了错误与冲突分支；分析完整保存协议时应另画专门流程，不能把成功路径当成所有情形。</p>
+<h2 id="agent-怎样生成这样的图">Agent 怎样生成这样的图</h2>
+<p>使用标准 Markdown 的 <code>svg</code> 代码块，内容是完整 SVG；需要有效的 <code>viewBox="0 0 宽 高"</code>。不用 MDX、JavaScript 或单独图表文件。复制本页图块就是可编辑示例。</p>
+<table>
+<thead>
+<tr>
+<th>元素</th>
+<th>用途</th>
+<th>写法</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>根 <code>title</code>、<code>desc</code></td>
+<td>图名、图例与阅读提示</td>
+<td>图块顶部与底部显示</td>
+</tr>
+<tr>
+<td><code>g data-node="id"</code></td>
+<td>可点击、可用键盘选择的节点</td>
+<td>内放 <code>title</code> 和 <code>desc</code>，描述责任、输入输出、边界</td>
+</tr>
+<tr>
+<td><code>path data-from="id" data-to="id"</code></td>
+<td>节点之间的关系</td>
+<td>点击节点时突出关联路径</td>
+</tr>
+<tr>
+<td><code>defs</code> / <code>marker</code></td>
+<td>箭头</td>
+<td><code>marker-end="url(#arrow)"</code>；渲染器自动隔离各图的 ID</td>
+</tr>
+<tr>
+<td><code>M</code> / <code>H</code> / <code>V</code> / <code>C</code></td>
+<td>起点、水平、垂直、曲线</td>
+<td>SVG 原生路径指令；布局和绕行由作者安排</td>
+</tr>
+<tr>
+<td><code>stroke-dasharray</code></td>
+<td>回路、参考关系等</td>
+<td>先在图例说明含义，不能随意混用</td>
+</tr>
+</tbody></table>
+<p>建议先写清楚节点职责和关系，再排版：主流程朝一个方向；边线从节点边缘出发，别穿过文字；跨层路径走留出的空白；回流绕外边缘；路径放在节点之前，线被节点遮住时不会压住文字。节点标题保持一行，细节放在 <code>desc</code> 和图后正文。</p>
+<p>当前提供 SVG 渲染与阅读交互，<strong>没有自动布局或自动避障</strong>。节点坐标与连线坐标需要一起更新。此前本机的 Higgsfield–Atlas 页面采用 HTML 节点加 SVG 覆盖层，在 <code>drawEdges()</code> 中按节点的位置计算路径；那种响应式连线现在由 <code>flow</code> 图块提供；固定 <code>svg</code> 图块仍使用作者安排的坐标。本页选择固定坐标以保持 Markdown 可移植，适应宽度与展开阅读用于不同屏幕。</p>
+<h2 id="实测旧版参考">实测旧版参考</h2>
+<p>本轮对照了本机以下成品的源码：</p>
+<ul>
+<li><code>AI/tools/cli/docs/reports/video-agent-architecture-20260929.html</code>：内嵌 SVG 的分层节点、折线、箭头与回路。</li>
+<li><code>AI/tools/cli/docs/reports/higgsfield-atlas-architecture-20260929.html</code>：HTML 节点、SVG 连线覆盖层、路径选择与节点详情；<code>drawEdges()</code> 按实际节点位置重画直线、折线和曲线。</li>
+</ul>
+<p>借用了分层阅读、连线留白和点击说明的设计方法；没有把旧页的业务内容或网页脚本装进教程正文。</p>
+<h2 id="显示与边界">显示与边界</h2>
+<ul>
+<li>阅读页、编辑预览、Agent 回答和只读站使用同一图块。放大后在图内滚动；展开阅读可按 Esc 收起；节点支持 Tab、Enter 和空格。</li>
+<li>没有 <code>data-node</code> 的 SVG 也能作为普通矢量图显示；没有 <code>desc</code> 时显示节点标题。</li>
+<li>SVG 的脚本、事件处理器、样式标签、内嵌网页、图片和外部引用不进入图块。颜色与线型使用 SVG 属性，例如 <code>fill</code>、<code>stroke</code>，不要依赖 <code>&lt;style&gt;</code>。</li>
+<li>格式不完整或 <code>viewBox</code> 无效时保留源代码，并显示原因。图太大时优先拆成概览和细节图，而不是缩到读者看不清。</li>
+</ul>
+</article><nav class="article-pagination" aria-label="上下篇"><a href="/velora-site/learn/benchmark-playbook/"><small>上一篇</small><strong>基准实验与优化决策</strong></a><a href="/velora-site/learn/dynamic-flow-design/"><small>下一篇</small><strong>动态连接的交互流程图</strong></a></nav></main><aside class="reading-sidebar"><nav class="table-of-contents" aria-label="本页目录"><p>本页内容</p><a class="toc-h2" href="#%E6%8A%8A%E6%B5%81%E7%A8%8B%E8%AE%B2%E6%B8%85%E6%A5%9A-svg-%E5%9B%BE%E4%B8%8E%E8%8A%82%E7%82%B9%E8%AF%B4%E6%98%8E">把流程讲清楚：SVG 图与节点说明</a><a class="toc-h2" href="#%E4%B8%80%E5%BC%A0%E5%9B%BE%E8%AE%B2%E4%B8%80%E4%B8%AA%E9%97%AE%E9%A2%98">一张图讲一个问题</a><a class="toc-h2" href="#agent-%E6%80%8E%E6%A0%B7%E7%94%9F%E6%88%90%E8%BF%99%E6%A0%B7%E7%9A%84%E5%9B%BE">Agent 怎样生成这样的图</a><a class="toc-h2" href="#%E5%AE%9E%E6%B5%8B%E6%97%A7%E7%89%88%E5%8F%82%E8%80%83">实测旧版参考</a><a class="toc-h2" href="#%E6%98%BE%E7%A4%BA%E4%B8%8E%E8%BE%B9%E7%95%8C">显示与边界</a></nav><nav class="reading-directory" aria-label="学习目录"><p>学习路径</p><a href="/velora-site/learn/start-here/">从这里开始</a><a href="/velora-site/learn/inference-mental-model/">推理性能心智模型</a><a href="/velora-site/learn/cpu-cluster-optimization/">CPU 集群推理优化</a><a href="/velora-site/learn/gpu-cluster-optimization/">GPU 集群推理优化</a><a href="/velora-site/learn/benchmark-playbook/">基准实验与优化决策</a><a href="/velora-site/learn/svg-diagram-design/" aria-current="page">SVG 流程图设计与交互</a><a href="/velora-site/learn/dynamic-flow-design/">动态连接的交互流程图</a></nav></aside></div><footer class="public-footer"><a href="/velora-site/">观澜 Velora</a><span>使用观澜 Velora 整理与发布</span><a href="/velora-site/getting-started/">继续构建自己的学习文档 ↗</a></footer></body></html>

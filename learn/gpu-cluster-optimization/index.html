@@ -1,0 +1,144 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-OY3dJ0QNVT7mHLm7RwK96nMwgQNJkZ3r9MRtsRsQaLw='; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'"><title>GPU 集群推理优化 · 观澜 Velora</title><meta name="description" content="连续批处理、Paged KV Cache、DP/TP/PP/EP 与阶段分离"><link rel="canonical" href="https://majiayu000.github.io/velora-site/learn/gpu-cluster-optimization/"><meta property="og:url" content="https://majiayu000.github.io/velora-site/learn/gpu-cluster-optimization/"><meta property="og:title" content="GPU 集群推理优化 · 观澜 Velora"><meta property="og:description" content="连续批处理、Paged KV Cache、DP/TP/PP/EP 与阶段分离"><meta property="og:type" content="article"><meta property="og:locale" content="zh_CN"><meta name="twitter:card" content="summary"><meta name="twitter:title" content="GPU 集群推理优化 · 观澜 Velora"><meta name="twitter:description" content="连续批处理、Paged KV Cache、DP/TP/PP/EP 与阶段分离"><link rel="icon" href="/velora-site/favicon.svg" type="image/svg+xml"><script type="module" crossorigin src="/velora-site/assets/index-C56CfqEb.js"></script><link rel="stylesheet" crossorigin href="/velora-site/assets/index-DD77AjJB.css"><script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Article","headline":"GPU 集群推理优化","description":"连续批处理、Paged KV Cache、DP/TP/PP/EP 与阶段分离","dateModified":"2026-10-05T23:02:33.448Z","inLanguage":"zh-CN","url":"https://majiayu000.github.io/velora-site/learn/gpu-cluster-optimization/"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"LLM 推理优化学习站","item":"https://majiayu000.github.io/velora-site/learn/"},{"@type":"ListItem","position":2,"name":"GPU 集群推理优化","item":"https://majiayu000.github.io/velora-site/learn/gpu-cluster-optimization/"}]}]}</script></head><body><a class="skip-link" href="#main">跳到正文</a><header class="public-header"><a class="public-brand" href="/velora-site/"><span aria-hidden="true">澜</span><strong>观澜 Velora</strong></a><nav class="header-links" aria-label="主导航"><a href="/velora-site/learn/#articles">全部文章</a><a href="/velora-site/getting-started/">本地使用指南 <span aria-hidden="true">↗</span></a></nav></header><div class="reading-layout"><main id="main" class="public-article" tabindex="-1"><nav class="breadcrumbs" aria-label="面包屑"><a href="/velora-site/learn/">全部文章</a><span aria-hidden="true">/</span><span>GPU 集群推理优化</span></nav><header class="article-heading"><p class="eyebrow">学习路径 02B</p><h1>GPU 集群推理优化</h1><p class="article-summary">连续批处理、Paged KV Cache、DP/TP/PP/EP 与阶段分离</p><p class="article-meta">更新于 <time datetime="2026-10-05T23:02:33.448Z">2026-10-05</time><span>·</span>6 分钟阅读</p></header><details class="mobile-directory"><summary>学习目录</summary><nav aria-label="学习目录"><a href="/velora-site/learn/start-here/">从这里开始</a><a href="/velora-site/learn/inference-mental-model/">推理性能心智模型</a><a href="/velora-site/learn/cpu-cluster-optimization/">CPU 集群推理优化</a><a href="/velora-site/learn/gpu-cluster-optimization/">GPU 集群推理优化</a><a href="/velora-site/learn/benchmark-playbook/">基准实验与优化决策</a><a href="/velora-site/learn/svg-diagram-design/">SVG 流程图设计与交互</a><a href="/velora-site/learn/dynamic-flow-design/">动态连接的交互流程图</a></nav></details><article class="markdown public-markdown">
+<blockquote>
+<p>Evidence: verified from current vLLM and TensorRT-LLM documentation; exact best parallelism remains unknown without model, topology, workload and SLO.</p>
+</blockquote>
+<h2 id="直接答案">直接答案</h2>
+<p>GPU 集群优化应遵循：先把单卡调度和 KV Cache 做好，再用数据并行增加副本；模型装不下或低并发延迟不达标时，再引入张量或流水线并行；MoE 模型才重点考虑专家并行；长 Prompt 与交互式 Decode 冲突明显时，最后评估 Prefill/Decode 分离。</p>
+<p>更多 GPU 并不自动等于更快。并行会引入通信、同步、气泡和更复杂的故障域。</p>
+<h2 id="单-gpu-先解决四件事">单 GPU 先解决四件事</h2>
+<h3 id="连续批处理">连续批处理</h3>
+<p>静态批处理会等待一整批请求全部结束。LLM 请求输出长度不同，短请求完成后留下的空位会浪费 GPU。</p>
+<p>连续批处理让调度器在每个迭代重新选择活动序列：</p>
+<pre><code class="language-text">迭代 1：[A, B, C]
+迭代 2：A 完成 -&gt; [D, B, C]
+迭代 3：C 完成 -&gt; [D, B, E]
+</code></pre>
+<p>它提高利用率，但批次和 Token 预算越激进，单个请求排队与抢占风险越高。</p>
+<h3 id="paged-kv-cache">Paged KV Cache</h3>
+<p>KV Cache 按固定大小块管理，不要求每个请求预留一整段连续显存。这样能减少碎片，并让请求随生成逐步获得块。</p>
+<p>调度器必须和缓存管理器共同决策。TensorRT-LLM 的运行时会预分配分页 KV Cache 池，并按缓存容量和调度策略接纳请求。<a href="https://nvidia.github.io/TensorRT-LLM/reference/memory.html">TensorRT-LLM Memory Usage</a></p>
+<h3 id="prefix-cache">Prefix Cache</h3>
+<p>如果多个请求共享 system prompt、文档前缀或多轮历史，可复用已经计算的 KV Cache，主要降低重复 Prefill 和 TTFT。</p>
+<p>缓存命中不仅依赖是否开启功能，也依赖路由。把相同前缀的请求发到没有对应缓存的副本，就失去了收益。vLLM 的数据并行文档也指出，每个 DP engine 有独立 KV Cache，负载均衡应考虑缓存状态。<a href="https://docs.vllm.ai/en/latest/serving/data_parallel_deployment/">vLLM Data Parallel Deployment</a></p>
+<h3 id="chunked-prefill">Chunked Prefill</h3>
+<p>长 Prompt 的 Prefill 可能占据一次很大的计算预算，使已经在 Decode 的交互请求等待。切块后，调度器能把一部分 Prefill 与 Decode 混合执行。</p>
+<p>它通常改善尾延迟公平性，但块太小会增加调度开销，块太大又无法消除阻塞。</p>
+<h2 id="四种并行方式">四种并行方式</h2>
+<table>
+<thead>
+<tr>
+<th>方式</th>
+<th>如何拆</th>
+<th>最适合</th>
+<th>主要成本</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>DP 数据并行</td>
+<td>每组 GPU 放完整模型，不同组处理不同请求</td>
+<td>模型能装下，提高总吞吐</td>
+<td>权重与缓存重复</td>
+</tr>
+<tr>
+<td>TP 张量并行</td>
+<td>一层矩阵切到多张 GPU</td>
+<td>单卡装不下，节点内高速互联</td>
+<td>每层集合通信</td>
+</tr>
+<tr>
+<td>PP 流水线并行</td>
+<td>不同层放到不同 GPU</td>
+<td>跨节点或模型非常大</td>
+<td>流水线气泡和阶段不均</td>
+</tr>
+<tr>
+<td>EP 专家并行</td>
+<td>MoE 专家分布到不同 GPU</td>
+<td>MoE 模型</td>
+<td>All-to-All 与负载不均</td>
+</tr>
+</tbody></table>
+<p>vLLM 支持 TP、PP、DP，并且每个 DP rank 拥有一个 engine core；GPU worker 数由 TP × PP 决定。<a href="https://docs.vllm.ai/en/latest/design/arch_overview/">vLLM Architecture Overview</a></p>
+<h2 id="一个可操作的选择树">一个可操作的选择树</h2>
+<pre><code class="language-text">模型能装进一张 GPU？
+  ├─ 能
+  │   ├─ 单请求延迟达标 -&gt; 优先 DP 扩吞吐
+  │   └─ 单请求延迟不达标 -&gt; 先查内核/量化/调度，再小范围测试 TP
+  └─ 不能
+      ├─ 单节点多卡能装下 -&gt; 优先节点内 TP
+      └─ 单节点仍装不下 -&gt; 评估 PP 或跨节点 TP，必须测通信
+
+模型是 MoE？
+  └─ 是 -&gt; 再评估 EP 和专家负载均衡
+</code></pre>
+<p>TP 尽量限制在 NVLink/NVSwitch 等高速互联域内。跨节点 TP 每层都可能触发通信，对网络抖动非常敏感。PP 降低了同步频率，但可能产生阶段气泡。</p>
+<h2 id="prefill-decode-分离">Prefill/Decode 分离</h2>
+<p>Prefill 更适合大批量矩阵计算，Decode 更强调稳定的逐 Token 延迟。阶段分离允许：</p>
+<pre><code class="language-text">长 Prompt
+  -&gt; Prefill GPU 池
+  -&gt; 传输 KV Cache
+  -&gt; Decode GPU 池
+  -&gt; 流式输出
+</code></pre>
+<p>收益是两个池可以分别选择 GPU 类型、并行度和扩容策略；代价是 KV Cache 传输、路由和生命周期协调。</p>
+<p>TensorRT-LLM 支持使用 MPI、UCX、NIXL 等后端，通过 RDMA/NVLink 传输，并可把 KV 传输与其他请求计算重叠。<a href="https://nvidia.github.io/TensorRT-LLM/features/disagg-serving.html">TensorRT-LLM Disaggregated Serving</a></p>
+<p>阶段分离更适合长输入、中等输出且 Prefill 干扰严重的流量。短 Prompt 或网络较慢时，传输成本可能超过收益。</p>
+<h2 id="量化和投机解码放在哪里">量化和投机解码放在哪里</h2>
+<h3 id="量化">量化</h3>
+<p>可以量化权重、激活或 KV Cache。它可能带来：</p>
+<ul>
+<li>模型可以放入更少 GPU。</li>
+<li>同一显存容纳更多 KV Cache。</li>
+<li>匹配硬件内核时提高吞吐。</li>
+</ul>
+<p>但硬件支持随格式和架构变化。应以当前框架兼容表和实际 profile 为准，不能看到 FP8/INT4 就默认更快。</p>
+<h3 id="投机解码">投机解码</h3>
+<p>小 draft 模型先提出多个候选 Token，大模型一次验证。接受率高时，可以减少大模型串行 Decode 步数；接受率低时，只增加额外计算。</p>
+<p>vLLM 的 Speculators 文档把它定义为不改变目标分布的加速方式，但是否有收益仍依赖 draft 成本、接受率和当前设备是否计算受限。<a href="https://docs.vllm.ai/projects/speculators/en/stable/user_guide/getting_started/">vLLM Speculators</a></p>
+<h2 id="集群中的状态与故障">集群中的状态与故障</h2>
+<table>
+<thead>
+<tr>
+<th>状态</th>
+<th>推荐所有者</th>
+<th>关键故障</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>请求队列</td>
+<td>API/调度层</td>
+<td>无界排队导致 P99 爆炸</td>
+</tr>
+<tr>
+<td>KV Cache</td>
+<td>单个 engine/rank</td>
+<td>路由错位导致命中消失</td>
+</tr>
+<tr>
+<td>模型权重</td>
+<td>GPU worker/rank group</td>
+<td>rank 不一致或加载失败</td>
+</tr>
+<tr>
+<td>并行组</td>
+<td>分布式执行器</td>
+<td>集合通信超时、部分节点退出</td>
+</tr>
+<tr>
+<td>SLO 与准入</td>
+<td>服务控制层</td>
+<td>只扩队列、不拒绝过载</td>
+</tr>
+</tbody></table>
+<p>分布式执行中不能静默移除一个 rank 后继续声称同一个并行组可用。启动配置、模型版本、量化格式和通信拓扑不一致时，应整体拒绝该副本进入服务。</p>
+<h2 id="自己动手实验">自己动手实验</h2>
+<p>在同一台多 GPU 节点上，固定模型、数据集和请求率，比较：</p>
+<ol>
+<li>单 GPU 基线。</li>
+<li>单副本 TP=2。</li>
+<li>两个独立 DP 副本，每个单 GPU。</li>
+<li>第 3 项开启 Prefix Cache。</li>
+<li>如果长 Prompt 明显干扰 Decode，再测试 Chunked Prefill。</li>
+</ol>
+<p>如果模型单卡可放下，第 2 项与第 3 项最值得比较：TP 可能影响单请求延迟，DP 更可能提升总吞吐。最终结论必须同时看 TTFT、TPOT、P99、显存和通信时间。</p>
+</article><section class="related-reading"><h2>继续理解</h2><a href="/velora-site/learn/inference-mental-model/"><strong>推理性能心智模型</strong><span>从 Prefill、Decode、KV Cache 和四类性能指标理解瓶颈</span></a><a href="/velora-site/learn/cpu-cluster-optimization/"><strong>CPU 集群推理优化</strong><span>NUMA、线程、量化、批处理和请求级扩容如何协同</span></a><a href="/velora-site/learn/benchmark-playbook/"><strong>基准实验与优化决策</strong><span>用可复现实验判断优化是否真的改善延迟、吞吐和成本</span></a></section><nav class="article-pagination" aria-label="上下篇"><a href="/velora-site/learn/cpu-cluster-optimization/"><small>上一篇</small><strong>CPU 集群推理优化</strong></a><a href="/velora-site/learn/benchmark-playbook/"><small>下一篇</small><strong>基准实验与优化决策</strong></a></nav></main><aside class="reading-sidebar"><nav class="table-of-contents" aria-label="本页目录"><p>本页内容</p><a class="toc-h2" href="#%E7%9B%B4%E6%8E%A5%E7%AD%94%E6%A1%88">直接答案</a><a class="toc-h2" href="#%E5%8D%95-gpu-%E5%85%88%E8%A7%A3%E5%86%B3%E5%9B%9B%E4%BB%B6%E4%BA%8B">单 GPU 先解决四件事</a><a class="toc-h3" href="#%E8%BF%9E%E7%BB%AD%E6%89%B9%E5%A4%84%E7%90%86">连续批处理</a><a class="toc-h3" href="#paged-kv-cache">Paged KV Cache</a><a class="toc-h3" href="#prefix-cache">Prefix Cache</a><a class="toc-h3" href="#chunked-prefill">Chunked Prefill</a><a class="toc-h2" href="#%E5%9B%9B%E7%A7%8D%E5%B9%B6%E8%A1%8C%E6%96%B9%E5%BC%8F">四种并行方式</a><a class="toc-h2" href="#%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%93%8D%E4%BD%9C%E7%9A%84%E9%80%89%E6%8B%A9%E6%A0%91">一个可操作的选择树</a><a class="toc-h2" href="#prefill-decode-%E5%88%86%E7%A6%BB">Prefill/Decode 分离</a><a class="toc-h2" href="#%E9%87%8F%E5%8C%96%E5%92%8C%E6%8A%95%E6%9C%BA%E8%A7%A3%E7%A0%81%E6%94%BE%E5%9C%A8%E5%93%AA%E9%87%8C">量化和投机解码放在哪里</a><a class="toc-h3" href="#%E9%87%8F%E5%8C%96">量化</a><a class="toc-h3" href="#%E6%8A%95%E6%9C%BA%E8%A7%A3%E7%A0%81">投机解码</a><a class="toc-h2" href="#%E9%9B%86%E7%BE%A4%E4%B8%AD%E7%9A%84%E7%8A%B6%E6%80%81%E4%B8%8E%E6%95%85%E9%9A%9C">集群中的状态与故障</a><a class="toc-h2" href="#%E8%87%AA%E5%B7%B1%E5%8A%A8%E6%89%8B%E5%AE%9E%E9%AA%8C">自己动手实验</a></nav><nav class="reading-directory" aria-label="学习目录"><p>学习路径</p><a href="/velora-site/learn/start-here/">从这里开始</a><a href="/velora-site/learn/inference-mental-model/">推理性能心智模型</a><a href="/velora-site/learn/cpu-cluster-optimization/">CPU 集群推理优化</a><a href="/velora-site/learn/gpu-cluster-optimization/" aria-current="page">GPU 集群推理优化</a><a href="/velora-site/learn/benchmark-playbook/">基准实验与优化决策</a><a href="/velora-site/learn/svg-diagram-design/">SVG 流程图设计与交互</a><a href="/velora-site/learn/dynamic-flow-design/">动态连接的交互流程图</a></nav></aside></div><footer class="public-footer"><a href="/velora-site/">观澜 Velora</a><span>使用观澜 Velora 整理与发布</span><a href="/velora-site/getting-started/">继续构建自己的学习文档 ↗</a></footer></body></html>
